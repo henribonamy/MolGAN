@@ -1,71 +1,62 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-
-from config import T, Y
-
 
 class MolGANDiscriminator(nn.Module):
-    def __init__(self, node_feat_dim=T, hidden_dim=64, num_relations=Y, num_layers=3):
-        super(MolGANDiscriminator, self).__init__()
-        self.rgcn_layers = nn.ModuleList()
+    def __init__(self, node_feat_dim=5, num_rels=3, hidden_dims=[64, 32], agg_dim=128):
+        super().__init__()
+        dims = [node_feat_dim] + hidden_dims
+        self.layers = nn.ModuleList()
+        for i in range(len(hidden_dims)):
+            self.layers.append(RelationalGCNLayer(dims[i], dims[i+1], num_rels, node_feat_dim))
+        
+        last_hidden = hidden_dims[-1]
+        self.i_mlp = nn.Linear(last_hidden + node_feat_dim, 1)
+        self.j_mlp = nn.Linear(last_hidden + node_feat_dim, agg_dim)
+        
+        self.fc1 = nn.Linear(agg_dim, agg_dim)
+        self.fc2 = nn.Linear(agg_dim, 1)
 
-        self.rgcn_layers.append(RGCNLayer(node_feat_dim, hidden_dim, num_relations))
-        for _ in range(num_layers - 1):
-            self.rgcn_layers.append(RGCNLayer(hidden_dim, hidden_dim, num_relations))
-
-        self.mlp = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.LeakyReLU(0.2),
-            nn.Linear(hidden_dim, 1),
-        )
-
-    def forward(self, A, X):
-        """
-        A: [B, N, N, Y]
-        X: [B, N, T]
-        Returns: [B, 1] (score per graph)
-        """
-        h = X
-        for rgcn in self.rgcn_layers:
-            h = F.relu(rgcn(h, A))
-
-        # Graph-level readout: sum over node embeddings
-        g = torch.sum(h, dim=1)  # [B, hidden_dim]
-        out = self.mlp(g)  # [B, 1]
+    def forward(self, a, x):
+        a_rel = a[..., 1:]
+        
+        has_edge = (a[..., 1:].sum(-1) > 0).float()
+        degrees = has_edge.sum(-1)
+        
+        h = x
+        
+        for layer in self.layers:
+            h = layer(h, x, a_rel, degrees)
+        
+        concat = torch.cat([h, x], dim=-1)
+        gate = torch.sigmoid(self.i_mlp(concat))
+        value = torch.tanh(self.j_mlp(concat))
+        h_g_prime = (gate * value).sum(dim=1)
+        h_g = torch.tanh(h_g_prime)
+        
+        out = torch.tanh(self.fc1(h_g))
+        out = self.fc2(out)
+        
         return out
 
+class RelationalGCNLayer(nn.Module):
+    def __init__(self, in_feat, out_feat, num_rels, node_feat_dim):
+        super().__init__()
+        self.f_s = nn.Linear(in_feat + node_feat_dim, out_feat)
+        self.f_y = nn.ModuleList([nn.Linear(in_feat + node_feat_dim, out_feat) for _ in range(num_rels)])
 
-class RGCNLayer(nn.Module):
-    def __init__(self, in_features, out_features, num_relations):
-        super(RGCNLayer, self).__init__()
-        self.num_relations = num_relations
-        self.in_features = in_features
-        self.out_features = out_features
-        self.weight = nn.Parameter(
-            torch.Tensor(num_relations, in_features, out_features)
-        )
-        self.bias = nn.Parameter(torch.Tensor(out_features))
-        self.reset_parameters()
+    def forward(self, h, x, a_rel, degrees):
+        concat = torch.cat([h, x], dim=-1)
+        self_part = self.f_s(concat)
+        
+        neighbor = 0
+        for y in range(len(self.f_y)):
+            temp = self.f_y[y](concat)
+            a_y = a_rel[..., y]
+            sum_j = torch.matmul(a_y, temp)
+            neighbor += sum_j
+        
+        neighbor = neighbor / degrees.clamp(min=1e-6).unsqueeze(-1)
+        
+        h_prime = self_part + neighbor
+        return torch.tanh(h_prime)
 
-    def reset_parameters(self):
-        nn.init.xavier_uniform_(self.weight)
-        nn.init.zeros_(self.bias)
-
-    def forward(self, X, A):
-        """
-        X: [B, N, F_in]
-        A: [B, N, N, R]
-        Output: [B, N, F_out]
-        """
-        B, N, _, R = A.shape
-        out = torch.zeros(B, N, self.out_features, device=X.device)
-
-        for r in range(R):
-            A_r = A[:, :, :, r]  # [B, N, N]
-            W_r = self.weight[r]  # [F_in, F_out]
-            XW_r = torch.matmul(X, W_r)  # [B, N, F_out]
-            out += torch.bmm(A_r, XW_r)  # [B, N, F_out]
-
-        out = out + self.bias  # broadcast over [B, N, F_out]
-        return out
