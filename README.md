@@ -19,12 +19,18 @@ This project trains a generative model to create novel, chemically valid molecul
 - **Training**: WGAN-GP with gradient penalty for (relatively) stable adversarial learning
 - **Dataset**: QM9 molecular dataset (filtered to C, O, N, F atoms, up to 9 heavy atoms)
 
+## Installation
+
+```bash
+pip install -r requirements.txt
+```
+
 ## Training
 
 Run the training script:
 
 ```bash
-python train.py
+python src/train.py
 ```
 
 This will:
@@ -43,7 +49,7 @@ This will:
 Generate novel molecules using the trained model (you can use the provided `generator.pt` or train your own.)
 
 ```bash
-python sample_molecules.py
+python src/sample_molecules.py
 ```
 
 This will:
