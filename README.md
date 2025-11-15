@@ -41,7 +41,7 @@ This will:
 ### Example Training Progress
 
 <p align="center">
-  <img src="media/training_progress.png" width="600"/>
+  <img src="media/training_progress.png" width="900"/>
 </p>
 
 ## Sampling Molecules
