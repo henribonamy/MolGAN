@@ -1,5 +1,7 @@
 import numpy as np
 import torch
+from torch.autograd import Variable
+import torch.autograd as autograd
 from pathlib import Path
 from rdkit import Chem
 from rdkit.Chem import Draw
@@ -8,6 +10,32 @@ from rdkit.Chem.rdchem import BondType
 
 from config import ATOM_EQUIV, ATOMS
 
+def calculate_gradient_penalty(discriminator, real_data, fake_data):
+        batch_size = real_data.size(0)
+        # Sample Epsilon from uniform distribution
+        eps = torch.rand(batch_size, 1).to(real_data.device)
+        eps = eps.expand_as(real_data)
+        
+        interpolation = eps * real_data + (1 - eps) * fake_data
+        
+        # 9*5 + 9*9*4
+        interp_logits = discriminator.forward(interpolation[:, 45:].reshape(BATCH_SIZE, 9, 9, 4), interpolation[:, :45].reshape(BATCH_SIZE, 9, 5))
+
+        grad_outputs = torch.ones_like(interp_logits)
+        
+        # Compute Gradients
+        gradients = autograd.grad(
+            outputs=interp_logits,
+            inputs=interpolation,
+            grad_outputs=grad_outputs,
+            create_graph=True,
+            retain_graph=True,
+        )[0]
+        
+        # Compute and return Gradient Norm
+        gradients = gradients.view(batch_size, -1)
+        grad_norm = gradients.norm(2, 1)
+        return torch.mean((grad_norm - 1) ** 2)
 
 def get_bond_type(bond_vector):
     """

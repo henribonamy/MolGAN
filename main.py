@@ -37,6 +37,7 @@ def train(
     print(f"[!] Using device {DEVICE} for training.")
     losses_G = []
     losses_D = []
+    validity_metrics = []
     start_time = time.time()
     real_label = 0.8
     fake_label = 0.2
@@ -94,16 +95,17 @@ def train(
                 # Sample molecules and check validity
                 num_valid = sample_and_check_validity(generator, 100, DEVICE, NZ)
                 print(f"                 Valid molecules: {num_valid}/100 ({num_valid}%)")
+                validity_metrics.append(num_valid)
 
                 start_time = time.time()
             counter += len(X)
 
         torch.save(generator.state_dict(), 'generator.pt')
-    return losses_G, losses_D
+    return losses_G, losses_D, validity_metrics
 
 
-data_loader = prepare_data()
+# data_loader = prepare_data()
 generator = MolGANGenerator().to(DEVICE)
 discriminator = MolGANDiscriminator().to(DEVICE)
 
-losses_G, losses_D = train(data_loader, generator, discriminator, 15, 0.01, 0.0001)
+losses_G, losses_D, validity_metrics = train(data_loader, generator, discriminator, 15, 0.01, 0.0005)
