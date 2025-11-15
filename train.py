@@ -2,12 +2,13 @@ import os
 import time
 
 import torch
-from rdkit import RDLogger
+import torch.autograd as autograd
+from rdkit import Chem, RDLogger
 
 from data import load_data, raw_to_XA
 from discriminator import MolGANDiscriminator
 from generator import MolGANGenerator
-from utils import DEVICE, NZ, calculate_gradient_penalty, training_checks
+from utils import DEVICE, NZ, build_molecule
 
 RDLogger.DisableLog("rdApp.*")
 
@@ -16,6 +17,71 @@ LAMBDA = 10
 EPOCHS = 15
 LR_G = 0.001
 LR_D = 0.001
+
+
+def calculate_gradient_penalty(discriminator, real_A, real_X, fake_A, fake_X):
+    batch_size = real_A.size(0)
+    device = real_A.device
+
+    eps_A = torch.rand(batch_size, 1, 1, 1, device=device)
+    eps_X = torch.rand(batch_size, 1, 1, device=device)
+
+    interp_A = eps_A * real_A + (1 - eps_A) * fake_A
+    interp_X = eps_X * real_X + (1 - eps_X) * fake_X
+
+    interp_A.requires_grad_(True)
+    interp_X.requires_grad_(True)
+
+    logits = discriminator(interp_A, interp_X)
+
+    grad_outputs = torch.ones_like(logits)
+
+    gradients = autograd.grad(
+        outputs=logits,
+        inputs=[interp_A, interp_X],
+        grad_outputs=grad_outputs,
+        create_graph=True,
+        retain_graph=True,
+        only_inputs=True,
+    )
+
+    grad_A, grad_X = gradients
+
+    grad_A = grad_A.reshape(batch_size, -1)
+    grad_X = grad_X.reshape(batch_size, -1)
+
+    grad_total = torch.cat([grad_A, grad_X], dim=1)
+
+    grad_norm = grad_total.norm(2, dim=1)
+
+    return ((grad_norm - 1) ** 2).mean()
+
+
+def training_checks(generator, num_samples, device, nz):
+    generator.eval()
+    valid_count = 0
+    valid_smiles = set()
+
+    with torch.no_grad():
+        for i in range(num_samples):
+            noise = torch.randn((1, nz), device=device)
+            fake_A, fake_X = generator.forward(noise)
+
+            fake_X_sample = fake_X.squeeze(0).cpu().numpy()
+            fake_A_sample = fake_A.squeeze(0).cpu().numpy()
+
+            mol = build_molecule(fake_X_sample, fake_A_sample, sanitize=True)
+            if mol is not None:
+                valid_count += 1
+                try:
+                    smiles = Chem.MolToSmiles(mol)
+                    valid_smiles.add(smiles)
+                except:
+                    pass
+
+    generator.train()
+    return valid_count, len(valid_smiles)
+
 
 def prepare_data():
     data = load_data()
@@ -106,7 +172,7 @@ def train(
                 if num_valid >= previous_valid:
                     if previous_valid > 0:
                         os.remove(f"generator_{previous_valid}.pt")
-                    torch.save(generator.state_dict(), f"generator_{num_valid}.pt")
+                        torch.save(generator.state_dict(), f"generator_{num_valid}.pt")
                     previous_valid = num_valid
             counter += len(X)
 

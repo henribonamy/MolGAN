@@ -48,7 +48,7 @@ This will:
 
 ## Sampling Molecules
 
-Generate novel molecules using the trained model:
+Generate novel molecules using the trained model (you can use the provided `generator.pt` or train your own.)
 
 ```bash
 python sample_molecules.py

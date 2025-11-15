@@ -97,7 +97,6 @@ def sample_novel_molecules(generator, dataset_molecules, num_samples, device, nz
 
 
 def main():
-    print("=" * 70)
     print("NOVEL MOLECULE SAMPLER")
     print("=" * 70)
 
@@ -112,6 +111,7 @@ def main():
     print(f"Loaded generator from {checkpoint_path}\n")
 
     dataset_molecules = get_dataset_molecules()
+    print("Loading...")
     print(f"Loaded {len(dataset_molecules)} molecules from training dataset\n")
 
     novel_molecules = sample_novel_molecules(
@@ -124,12 +124,10 @@ def main():
     )
 
     print("\n" + "=" * 70)
-    print(f"Generated {len(novel_molecules)} novel molecules")
-    print(f"Images saved to: ./{OUTPUT_DIR}/")
+    print(f"Generated {len(novel_molecules)} novel molecules to ./{OUTPUT_DIR}.")
     print("=" * 70)
 
     RDLogger.EnableLog('rdApp.*')
-
 
 if __name__ == "__main__":
     main()
