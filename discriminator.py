@@ -17,25 +17,22 @@ class MolGANDiscriminator(nn.Module):
         self.fc2 = nn.Linear(agg_dim, 1)
 
     def forward(self, a, x):
-        # a: [B, N, N, 4] where channels are [no-bond, single, double, triple]
-        # Use all 4 channels for gradient flow, but only bond channels (1-3) for connectivity
-        a_rel = a  # [B, N, N, 4] - now using all channels
-        # compute continuous adjacency by summing only the bond channels (exclude no-bond)
-        adj = a[..., 1:].sum(dim=-1)    # [B, N, N], only sum bond channels
-        degrees = adj.sum(dim=-1)        # [B, N], differentiable
+        a_rel = a
+        adj = a[..., 1:].sum(dim=-1)
+        degrees = adj.sum(dim=-1)
 
         h = x
         for layer in self.layers:
             h = layer(h, x, a_rel, degrees)
-        
-        concat = torch.cat([h, x], dim=-1)        # [B, N, H+F]
-        gate = torch.sigmoid(self.i_mlp(concat))  # [B, N, 1]
-        value = torch.tanh(self.j_mlp(concat))    # [B, N, agg_dim]
-        h_g_prime = (gate * value).sum(dim=1)     # [B, agg_dim]
-        h_g = torch.tanh(h_g_prime)               # [B, agg_dim]
-        
+
+        concat = torch.cat([h, x], dim=-1)
+        gate = torch.sigmoid(self.i_mlp(concat))
+        value = torch.tanh(self.j_mlp(concat))
+        h_g_prime = (gate * value).sum(dim=1)
+        h_g = torch.tanh(h_g_prime)
+
         out = torch.tanh(self.fc1(h_g))
-        out = self.fc2(out)                       # [B, 1]
+        out = self.fc2(out)
         return out
 
 class RelationalGCNLayer(nn.Module):
@@ -45,23 +42,18 @@ class RelationalGCNLayer(nn.Module):
         self.f_y = nn.ModuleList([nn.Linear(in_feat + node_feat_dim, out_feat) for _ in range(num_rels)])
 
     def forward(self, h, x, a_rel, degrees, eps=1e-6):
-        # h: [B, N, in_feat]   x: [B, N, node_feat_dim]
-        concat = torch.cat([h, x], dim=-1)             # [B, N, in+F]
-        self_part = self.f_s(concat)                   # [B, N, out]
-        
+        concat = torch.cat([h, x], dim=-1)
+        self_part = self.f_s(concat)
+
         neighbor = 0
-        # a_rel[..., y] is [B, N, N]; temp [B, N, out]; matmul gives [B, N, out]
         for r, linear in enumerate(self.f_y):
-            temp = linear(concat)                      # [B, N, out]
-            a_y = a_rel[..., r]                        # [B, N, N] (float, differentiable)
-            # multiply adjacency with neighbor features: a_y @ temp
-            sum_j = torch.matmul(a_y, temp)            # [B, N, out]
+            temp = linear(concat)
+            a_y = a_rel[..., r]
+            sum_j = torch.matmul(a_y, temp)
             neighbor = neighbor + sum_j
-        
-        # degrees: [B, N], make safe denominator and keep differentiable
-        denom = degrees.unsqueeze(-1) + eps            # [B, N, 1]
-        neighbor = neighbor / denom                    # [B, N, out]
-        
+
+        denom = degrees.unsqueeze(-1) + eps
+        neighbor = neighbor / denom
+
         h_prime = self_part + neighbor
         return torch.tanh(h_prime)
-

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from config import NZ, N, T, Y
+from utils import NZ, N, T, Y
 
 
 class MolGANGenerator(nn.Module):
@@ -17,23 +17,19 @@ class MolGANGenerator(nn.Module):
             nn.Tanh(),
             nn.Linear(h2, h3),
             nn.Tanh(),
-            nn.Linear(h3, N * T + N * N * Y),  # → 9*5 + 9*9*4 = 369
+            nn.Linear(h3, N * T + N * N * Y),
         )
 
     def forward(self, z):
-        """ Takes z ~ N(0;1) and returns X, A)"""
         batch_size = z.size(0)
-        out = self.net(z)  # (batch_size, 369)
+        out = self.net(z)
 
-        X_logits = out[:, : N * T]  # (batch_size, 45)
-        A_logits = out[:, N * T :]  # (batch_size, 324)
+        X_logits = out[:, : N * T]
+        A_logits = out[:, N * T :]
 
-        # Reshape
-        X_logits = X_logits.view(batch_size, N, T)  # (batch_size, 9, 5)
-        A_logits = A_logits.view(batch_size, N, N, Y)  # (batch_size, 9, 9, 4)
+        X_logits = X_logits.view(batch_size, N, T)
+        A_logits = A_logits.view(batch_size, N, N, Y)
 
-        # Use soft Gumbel-softmax for better gradient flow during training
-        # tau=1.0 provides a good balance between discreteness and gradient quality
         X = F.gumbel_softmax(X_logits, dim=-1, tau=1.0, hard=False)
         A = F.gumbel_softmax(A_logits, dim=-1, tau=1.0, hard=False)
         return A, X
