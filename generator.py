@@ -32,6 +32,8 @@ class MolGANGenerator(nn.Module):
         X_logits = X_logits.view(batch_size, N, T)  # (batch_size, 9, 5)
         A_logits = A_logits.view(batch_size, N, N, Y)  # (batch_size, 9, 9, 4)
 
-        X = F.gumbel_softmax(X_logits, dim=-1, tau=0.1, hard=True)
-        A = F.gumbel_softmax(A_logits, dim=-1, tau=0.1, hard=True)
+        # Use soft Gumbel-softmax for better gradient flow during training
+        # tau=1.0 provides a good balance between discreteness and gradient quality
+        X = F.gumbel_softmax(X_logits, dim=-1, tau=1.0, hard=False)
+        A = F.gumbel_softmax(A_logits, dim=-1, tau=1.0, hard=False)
         return A, X
